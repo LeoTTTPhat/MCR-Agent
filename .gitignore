@@ -1,0 +1,7 @@
+/*
+!/code/
+!/data/
+!/README.md
+!/.gitignore
+**/__pycache__/
+**/.DS_Store
