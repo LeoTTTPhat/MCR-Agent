@@ -17,6 +17,14 @@ from .reliability import (
 from .simulate import monte_carlo_reliability
 from .perturb import perturb
 from .chains import random_substochastic, nhpp_scaling_family
+from .trace_to_chain import (
+    TraceStep,
+    ChainFit,
+    fit as fit_chain,
+    first_passage_times,
+    empirical_first_passage_from_traces,
+    goodness_of_fit,
+)
 
 __all__ = [
     "reliability",
@@ -26,5 +34,11 @@ __all__ = [
     "perturb",
     "random_substochastic",
     "nhpp_scaling_family",
+    "TraceStep",
+    "ChainFit",
+    "fit_chain",
+    "first_passage_times",
+    "empirical_first_passage_from_traces",
+    "goodness_of_fit",
 ]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
