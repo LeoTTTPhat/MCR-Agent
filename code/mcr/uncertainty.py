@@ -46,6 +46,61 @@ import numpy as np
 from .trace_to_chain import ChainFit, TraceStep, fit, _fit_transition_matrix
 
 
+def _compute_centroids_from_chain(
+    chain: ChainFit, traces: Sequence[Sequence[TraceStep]]
+) -> np.ndarray:
+    """Recover per-cluster centroids in feature space from ``chain.labels``.
+
+    Returns an (m, d) array of means of feature vectors assigned to each
+    cluster, in the same label convention as ``chain.labels``.
+    """
+    # Walk traces once to collect feature vectors in the order chain.labels uses.
+    feats: list[np.ndarray] = []
+    for tr in traces:
+        for s in tr:
+            if s.is_terminal:
+                continue
+            feats.append(np.asarray(s.features, dtype=float))
+    X = np.stack(feats, axis=0) if feats else np.zeros((0, 1))
+    d = X.shape[1]
+    m = chain.m
+    centroids = np.zeros((m, d))
+    counts = np.zeros(m)
+    for i, lbl in enumerate(chain.labels):
+        centroids[int(lbl)] += X[i]
+        counts[int(lbl)] += 1
+    centroids = centroids / np.maximum(counts[:, None], 1.0)
+    return centroids
+
+
+def _assign_by_nearest_centroid(
+    traces: Sequence[Sequence[TraceStep]], centroids: np.ndarray
+) -> tuple[list[list[int]], list[str | None]]:
+    """Assign each transient step in every trace to its nearest centroid.
+
+    Returns (trace_labels, terminals) in the format ``_fit_transition_matrix``
+    expects.  This is the fast-refit path used by the bootstrap when the
+    target chain's clustering is taken as fixed — the assumption sits
+    between the Dirichlet posterior (strictly fixed clusters and fixed
+    counts) and the full re-cluster bootstrap (fully stochastic).
+    """
+    trace_labels: list[list[int]] = []
+    terminals: list[str | None] = []
+    for tr in traces:
+        seq: list[int] = []
+        for s in tr:
+            if s.is_terminal:
+                continue
+            x = np.asarray(s.features, dtype=float)
+            d2 = np.sum((centroids - x) ** 2, axis=1)
+            seq.append(int(np.argmin(d2)))
+        trace_labels.append(seq)
+        terminals.append(
+            tr[-1].terminal_label if tr and tr[-1].is_terminal else None
+        )
+    return trace_labels, terminals
+
+
 # --------------------------------------------------------------------------
 # Data container
 # --------------------------------------------------------------------------
@@ -305,6 +360,7 @@ def bootstrap_intervals(
     k_max: int = 15,
     prior_alpha: float = 1.0,
     target_fit: ChainFit | None = None,
+    fast: bool = True,
 ) -> ChainCI:
     """Non-parametric trace-level bootstrap CI for (Q, R_succ, R_fail).
 
@@ -343,11 +399,28 @@ def bootstrap_intervals(
     n = len(traces)
     traces_list = list(traces)
 
+    # Precompute target centroids for the fast bootstrap path.
+    if fast:
+        centroids = _compute_centroids_from_chain(target_fit, traces)
+
     for b in range(n_boot):
         idx = rng.integers(0, n, size=n)
         bsample = [traces_list[i] for i in idx]
-        # Refit.  Because bootstrap can produce trivial (zero-transient)
-        # samples, we fall back to the target fit on failure.
+        if fast:
+            # Fast path: re-use the target clustering by assigning each
+            # resampled step to its nearest target centroid.  This
+            # captures (a) trace-level sampling noise and (b) boundary
+            # jitter between adjacent clusters while skipping the costly
+            # Ward-linkage re-cluster on every resample.
+            tlab, tterm = _assign_by_nearest_centroid(bsample, centroids)
+            Qb, Rsb, Rfb = _fit_transition_matrix(
+                tlab, tterm, k=m, alpha=prior_alpha
+            )
+            Q_samples[b] = Qb
+            Rs_samples[b] = Rsb
+            Rf_samples[b] = Rfb
+            continue
+        # Full path: re-cluster + re-fit on every bootstrap sample.
         try:
             bfit = fit(bsample, k_min=k_min, k_max=min(k_max, m), alpha=prior_alpha)
         except Exception:
@@ -355,8 +428,7 @@ def bootstrap_intervals(
             Rs_samples[b] = target_fit.R_succ
             Rf_samples[b] = target_fit.R_fail
             continue
-        # Align cluster labels to target by majority matching.  Build a
-        # confusion matrix and greedily match.
+        # Align cluster labels to target by majority matching.
         Qb, Rsb, Rfb = _align_to_target(bfit, target_fit, bsample)
         Q_samples[b] = Qb
         Rs_samples[b] = Rsb
@@ -383,6 +455,7 @@ def bootstrap_intervals(
             "n_boot": n_boot,
             "n_traces": n,
             "seed": seed,
+            "fast": bool(fast),
         },
     )
 
