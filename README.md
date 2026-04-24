@@ -37,9 +37,7 @@ pip install -e .
 pip install numpy scipy matplotlib pandas   # script-only deps
 ```
 
-A one-command end-to-end reproduction (install + all simulation studies
-+ static paper verification, ~15 min on a laptop) is available at the
-repo root:
+A one-command end-to-end reproduction (install + all simulation studies, ~15 min on a laptop) is available at the repo root:
 
 ```bash
 bash reproduce.sh            # full run
@@ -225,8 +223,6 @@ code/
 │   ├── SS8_uncertainty_quantification.py
 │   ├── SS9_heldout_empirical.py
 │   └── mast_adapter.py        # loader for the public MAST traces
-├── notebooks/
-│   └── theorem_sanity.ipynb   # interactive walkthrough of T1–T6
 └── pyproject.toml
 ```
 
@@ -247,11 +243,8 @@ code/
 ## Reproducibility notes
 
 Every script writes a JSON summary alongside its figure; the JSONs are
-the ground truth for every numerical claim in the paper. A static
-verifier, `paper/verify_paper.py`, cross-checks the LaTeX source for
-undefined references, missing citations, missing `\input` files, and
-approximate word count. `bash reproduce.sh` re-runs SS1–SS6 and the
-verifier in a single invocation. The full pipeline is deterministic
+the ground truth for every numerical claim in the paper. `bash reproduce.sh`
+re-runs SS1–SS6 in a single invocation. The full pipeline is deterministic
 given the seeds in `data/synthetic/seeds.json`; minor floating-point
 variation across BLAS versions (< 1e-10) is expected and does not
 affect any reported digit.
